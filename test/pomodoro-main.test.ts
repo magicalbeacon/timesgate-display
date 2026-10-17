@@ -5,7 +5,7 @@ import {spawn,spawnSync,type ChildProcess} from 'node:child_process';
 import {mkdtempSync,writeFileSync,readFileSync,existsSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {pathToFileURL} from 'node:url';
+import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createServer,request} from 'node:http';
 import {loadConfig,pomodoroFingerprint} from '../src/config.ts';
 import {Control} from '../src/control.ts';
@@ -13,7 +13,7 @@ const wait=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
 async function until(check:()=>boolean){for(let n=0;n<100;n++){if(check())return;await wait(50);}assert.fail('Mock service state did not settle');}
 
 test('whole main/CLI: manual LCD3 only, web timer has no device calls, stocks stay LCD0/1, failure halts and restart resets',async()=>{
- const dir=mkdtempSync(join(tmpdir(),'tg-pomo-main-'));const cwd=new URL('..',import.meta.url).pathname;
+ const dir=mkdtempSync(join(tmpdir(),'tg-pomo-main-'));const cwd=fileURLToPath(new URL('..',import.meta.url));
  const socket=createServer();await new Promise<void>(r=>socket.listen(0,'127.0.0.1',r));const port=(socket.address() as {port:number}).port;await new Promise<void>(r=>socket.close(()=>r()));
  const env={PATH:process.env.PATH!,NODE_OPTIONS:'--max-old-space-size=128',TARGET_SCREENS:'1,2',TICKERS:'AAPL,MSFT',DEVICE_IP:'192.168.240.50',DEVICE_WRITES_ENABLED:'true',FINNHUB_API_KEY:'SYNTHETIC_KEY',LOCAL_TOKEN:'987654321',POMODORO_ENABLED:'true',WEATHER_ENABLED:'false',SERVER_BASE_URL:`http://192.168.240.20:${port}`,PORT:String(port),STATE_DIR:dir,MOCK_DEVICE_LOG:join(dir,'calls'),MOCK_FAILURE:join(dir,'failure')};
  const mock=join(dir,'fetch-mock.mjs');writeFileSync(mock,`import {appendFileSync,existsSync} from 'node:fs';globalThis.fetch=async(input,init)=>{if(String(input)==='http://192.168.240.50/post'){const p=JSON.parse(init.body);appendFileSync(process.env.MOCK_DEVICE_LOG,JSON.stringify({Command:p.Command,LcdIndex:p.LcdIndex,LcdId:p.LcdId,LcdArray:p.LcdArray})+'\\n');return new Response(JSON.stringify({error_code:existsSync(process.env.MOCK_FAILURE)?7:0,PicId:3}));}return new Response('{}',{status:503});};`);
