@@ -1,0 +1,17 @@
+{
+  "name": "timesgate-combined",
+  "version": "0.4.3",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.12.0"
+  },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 test/*.test.ts",
+    "start": "node src/main.ts",
+    "control": "node --env-file-if-exists=.env src/cli.ts"
+  },
+  "dependencies": {
+    "jpeg-js": "0.4.4"
+  }
+}
