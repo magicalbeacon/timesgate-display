@@ -1,8 +1,10 @@
-# Times Gate: two stock screens plus optional weather
+# Times Gate: stocks, weather and Pomodoro
 
 A separate Docker source package for a Raspberry Pi 3B+ running **64-bit Raspberry Pi OS (arm64)**. It combines quotes, genuine completed daily candles, rendering and device updates. It is not a prebuilt image.
 
-**Stock images target only human screens 1 and 2 (the leftmost two). Optional weather setup targets screen 5 only. Screens 3–4 are never cleared, set up or sent images.** The weather command is a separate explicit opt-in; automatic stock targeting still rejects other numbers. No global image-ID reset exists. Never run a second automatic image writer at the same time.
+**Stock images target only human screens 1 and 2 (the leftmost two). Optional weather setup targets screen 5 only; optional Pomodoro setup targets screen 4 only. Screen 3 stays app-controlled and is never cleared, set up or sent images.** Both native setup commands are separate explicit opt-ins; automatic stock targeting still rejects other numbers. No global image-ID reset exists. Never run a second automatic image writer at the same time.
+
+Release **0.5.0** adds optional browser Pomodoro controls and native screen4 countdown. Read **UPGRADE-POMODORO.md** for the full preserve-`.env` upgrade and explicit setup steps. The timer stays idle until Start; the physical countdown polls every 10 seconds, while the smooth colour-changing ring is browser-only.
 
 For a failed weather setup, read **UPGRADE-DIAGNOSTICS.md** first. Release 0.4.3 reports bounded failure reasons without retrying or changing the 0.4.2 layout.
 
@@ -67,7 +69,7 @@ sudo docker compose up -d
 sudo docker compose exec timesgate node src/cli.ts status
 ```
 
-Open `http://YOUR_PI_LAN_IP:8081`. Images are software previews, not photos of your Divoom. Wait for data; initial requests and rate limits may take a minute. Stock image pushes do not need `SERVER_BASE_URL`. Optional native weather does require it: use the Pi's private-LAN HTTP origin on port 8081. Do not expose port 8081 to the internet; the read-only LAN dashboard is unauthenticated.
+Open `http://YOUR_PI_LAN_IP:8081`. Images are software previews, not photos of your Divoom. Wait for data; initial requests and rate limits may take a minute. Stock image pushes do not need `SERVER_BASE_URL`. Optional native weather and Pomodoro do require it: use the Pi's private-LAN HTTP origin on port 8081. Do not expose port 8081 to the internet; the LAN dashboard is unauthenticated. Optional Pomodoro controls can be used by anyone on your trusted LAN; use the exact configured IP/port. Other dashboard routes remain read-only.
 
 ### 4. Optional: save the existing stock layout for selected-screen restoration
 
@@ -125,7 +127,7 @@ Device failures halt all subsequent writes, including the second screen of a par
 - Prices and daily candles are distinct data: Q UTC shows the quote time; C1D THRU shows the last completed candle date. A six-hour-old chart cache gets a visible warning. A freshly fetched history can still end on an older date; that date is always visible.
 - US source quotes are stale after 180 seconds by default; delayed Yahoo source quotes after at least 30 minutes, with retrieval staleness still 180 seconds. No claim of guaranteed live prices.
 - Stale/error data is retained with warnings, never replaced with zeros or mock prices. On network loss, existing images can freeze, including their last status label. Always read the printed quote date/time.
-- Two panels update sequentially. A brief mixed pair is possible; an error can leave only the first updated. Stock writes never address the other three. The optional weather command explicitly addresses only screen 5; screens 3–4 are outside all application writes. Undocumented firmware-wide behavior cannot be ruled out.
+- Two panels update sequentially. A brief mixed pair is possible; an error can leave only the first updated. Stock writes never address the other three. The optional weather command explicitly addresses only screen 5; screen 3 is outside all application writes. Undocumented firmware-wide behavior cannot be ruled out.
 - Yahoo's unofficial endpoint can change, rate-limit or stop working. This is a personal-use experiment; no paid API purchase or new account is required. Check provider terms for your own use.
 - No private portfolio positions, account data or trading actions are used. Symbols only are sent to market-data providers.
 - This release has **not** been tested on physical hardware in this build environment. Docker was unavailable in the build workspace, so actual image build/arm64 runtime remain for your Pi to verify.

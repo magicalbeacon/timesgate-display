@@ -1,5 +1,5 @@
 import {readFileSync,existsSync} from 'node:fs';
-import {loadConfig,pairFor,fingerprint,weatherFingerprint} from './config.ts';
+import {loadConfig,pairFor,fingerprint,weatherFingerprint,pomodoroFingerprint,requirePomodoroServer} from './config.ts';
 import {Control} from './control.ts';
 import {Writer} from './writer.ts';
 import {MarketCache} from './market.ts';
@@ -9,6 +9,8 @@ import {RainCache,RAIN_SOURCE} from './rain.ts';
 import {WeatherCache} from './weather.ts';
 import {setupWeather} from './weather-device.ts';
 import {deviceFailureReason} from './device.ts';
+import {PomodoroTimer} from './pomodoro.ts';
+import {setupPomodoro} from './pomodoro-device.ts';
 const config=loadConfig();const control=new Control(config);const writer=new Writer(config,control);
 // A process restart can follow an uncertain in-flight device write. Always require a fresh explicit arm.
 control.stop();
@@ -16,10 +18,12 @@ const market=new MarketCache({tickers:config.tickers,apiKey:config.apiKey,quoteR
 const weather=config.weatherEnabled?new WeatherCache():undefined;
 const rain=config.weatherEnabled?new RainCache():undefined;
 function weatherView(){return weather?{...weather.view(),rain:{...rain!.view(),metadata:RAIN_SOURCE}}:null;}
-let step=0,running=true,lastWrite:string|null=null,lastRestore:string|null=null,lastWeatherSetup:string|null=null,nextRotation=0;
+const pomodoro=config.pomodoroEnabled?new PomodoroTimer():undefined;
+const pomodoroOrigin=pomodoro?requirePomodoroServer(config):undefined;
+let step=0,running=true,lastWrite:string|null=null,lastRestore:string|null=null,lastWeatherSetup:string|null=null,lastPomodoroSetup:string|null=null,nextRotation=0;
 const previews=new Map<number,Buffer>();let displayedSymbols:[string,string]=pairFor(config.tickers,0);
-function status(){return {version:'0.4.3',control:control.status(),rotationSeconds:config.rotationSeconds,displayedSymbols,lastWrite,lastRestore,lastWeatherSetup,weather:weatherView(),quoteSource:'Finnhub US / Yahoo delayed price-only routes',historySource:'Yahoo unofficial completed daily OHLC',quotes:market.all()};}
-const server=makeServer({status,image:screen=>previews.get(screen),...(weather?{weather:()=>weatherView()!}:{})});
+function status(){return {version:'0.5.0',control:control.status(),rotationSeconds:config.rotationSeconds,displayedSymbols,lastWrite,lastRestore,lastWeatherSetup,lastPomodoroSetup,pomodoro:pomodoro?.view()??null,weather:weatherView(),quoteSource:'Finnhub US / Yahoo delayed price-only routes',historySource:'Yahoo unofficial completed daily OHLC',quotes:market.all()};}
+const server=makeServer({status,image:screen=>previews.get(screen),...(weather?{weather:()=>weatherView()!}:{}),...(pomodoro?{pomodoro:{origin:pomodoroOrigin!,view:()=>pomodoro.view(),action:input=>pomodoro.action(input)}}:{})});
 server.listen(config.port,'0.0.0.0',()=>console.log(`Two-screen service listening on port ${config.port}; explicit arm required`));
 market.start();weather?.start();rain?.start();
 async function cycle(){
@@ -39,6 +43,14 @@ async function cycle(){
         try{await setupWeather(config,control,true,request.stopVersion);lastWeatherSetup='Screen5 native weather setup acknowledged';}
         catch(error){lastWeatherSetup=`Weather setup failed (${deviceFailureReason(error)}); inspect screen5 before retrying`;}
       } else lastWeatherSetup='Weather setup rejected; stop stock rotation and check configuration';
+    }
+    if(existsSync(control.path('POMODORO_REQUEST'))){
+      let request:any;try{request=JSON.parse(readFileSync(control.path('POMODORO_REQUEST'),'utf8'));}catch{request=null;}
+      control.remove('POMODORO_REQUEST');
+      if(!control.isArmed()&&pomodoro&&request?.fingerprint===pomodoroFingerprint(config)&&request?.stopVersion===control.stopVersion()&&Number.isFinite(request?.at)&&Date.now()-request.at>=0&&Date.now()-request.at<60000){
+        try{await setupPomodoro(config,control,true,request.stopVersion);lastPomodoroSetup='Screen4 native Pomodoro setup acknowledged';}
+        catch(error){lastPomodoroSetup=`Pomodoro setup failed (${deviceFailureReason(error)}); inspect screen4 before retrying`;}
+      } else lastPomodoroSetup='Pomodoro setup rejected; stop stock rotation and check configuration';
     }
     if(Date.now()>=nextRotation){
       displayedSymbols=pairFor(config.tickers,step);

@@ -1,13 +1,13 @@
 import {readFileSync,statSync} from 'node:fs';
-import {loadConfig,fingerprint,weatherFingerprint} from './config.ts';
+import {loadConfig,fingerprint,weatherFingerprint,pomodoroFingerprint} from './config.ts';
 import {Control} from './control.ts';
 import {readNextId,deviceFailureReason} from './device.ts';
 import {guardedFetch} from './writer.ts';
 const [command,...args]=process.argv.slice(2);
 async function main(){
-  if(!command||command==='help'){console.log('Commands: status | stop | probe | arm --apply | restore --layout /app/state/stock-layout.json --apply. Stocks target screens1–2 only. Weather: weather setup --apply targets screen5 only.');return;}
-  if(!['status','stop','probe','arm','restore','weather'].includes(command))throw new Error('Unknown command');
-  if(['arm','restore','weather'].includes(command)&&!args.includes('--apply'))throw new Error('Explicit --apply required; no action taken');
+  if(!command||command==='help'){console.log('Commands: status | stop | probe | arm --apply | restore --layout /app/state/stock-layout.json --apply. Stocks target screens1–2 only. Weather: weather setup --apply targets screen5 only. Pomodoro: pomodoro setup --apply targets screen4 only.');return;}
+  if(!['status','stop','probe','arm','restore','weather','pomodoro'].includes(command))throw new Error('Unknown command');
+  if(['arm','restore','weather','pomodoro'].includes(command)&&!args.includes('--apply'))throw new Error('Explicit --apply required; no action taken');
   const config=loadConfig();const control=new Control(config);
   if(command==='stop'){control.stop();console.log('Stop requested. An already-sent request may finish; no subsequent image writes will start.');}
   else if(command==='status'){let runtime:unknown=null;try{runtime=JSON.parse(readFileSync(control.path('STATUS'),'utf8'));}catch{}console.log(JSON.stringify({control:control.status(),runtime},null,2));}
@@ -22,6 +22,12 @@ async function main(){
     if(!Number.isFinite(heartbeat)||Date.now()-heartbeat>45000)throw new Error('Service heartbeat missing or old');
     control.write('WEATHER_REQUEST',{fingerprint:weatherFingerprint(config),stopVersion:control.stopVersion(),at:Date.now()});
     console.log('Native weather setup requested for screen5 only. Check status. Stock rotation remains stopped until explicitly armed.');
+  }else if(command==='pomodoro'){
+    if(args[0]!=='setup'||control.isArmed()||!config.writesEnabled)throw new Error('Use pomodoro setup --apply after stopping stock rotation');
+    let heartbeat=0;try{heartbeat=Date.parse(JSON.parse(readFileSync(control.path('STATUS'),'utf8')).heartbeat);}catch{}
+    if(!Number.isFinite(heartbeat)||Date.now()-heartbeat>45000)throw new Error('Service heartbeat missing or old');
+    control.write('POMODORO_REQUEST',{fingerprint:pomodoroFingerprint(config),stopVersion:control.stopVersion(),at:Date.now()});
+    console.log('Native Pomodoro setup requested for screen4 only. Check status, then start the timer manually on the dashboard. Stock rotation remains stopped.');
   }else if(command==='restore'){
     if(control.isArmed()||!config.writesEnabled)throw new Error('Stop rotation first and enable explicit device writes');
     const flag=args.indexOf('--layout');if(flag<0||!args[flag+1])throw new Error('Provide --layout with a token-free stock-app layout export');
