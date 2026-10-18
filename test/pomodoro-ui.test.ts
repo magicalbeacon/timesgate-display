@@ -2,13 +2,13 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {runInNewContext} from 'node:vm';
 import {POMODORO_HTML,POMODORO_SCRIPT} from '../src/pomodoro-ui.ts';
-import {PomodoroTimer,type PomodoroView} from '../src/pomodoro.ts';
+import {PomodoroTimer} from '../src/pomodoro.ts';
 
 type PendingRequest={path:string;options:any;resolve:(value:any)=>void;reject:(error:Error)=>void};
 function fixture(){
   let now=0;const requests:PendingRequest[]=[],intervals:{callback:()=>void;ms:number}[]=[];
   const elements=new Map<string,any>();
-  for(const id of ['pomodoro','pomo-ring','pomo-phase','pomo-time','pomo-state','pomo-message'])elements.set('#'+id,{hidden:id==='pomodoro',textContent:'',style:{values:new Map<string,string>(),setProperty(name:string,value:string){this.values.set(name,value);}}});
+  for(const id of ['pomodoro','pomo-ring','pomo-phase','pomo-time','pomo-state','pomo-message','pomo-session'])elements.set('#'+id,{hidden:id==='pomodoro',textContent:'',style:{values:new Map<string,string>(),setProperty(name:string,value:string){this.values.set(name,value);}}});
   const buttons=['start','pause','resume','reset'].map(action=>({dataset:{action},disabled:true,textContent:'',listener:undefined as undefined|(()=>Promise<void>),addEventListener(event:string,callback:()=>Promise<void>){assert.equal(event,'click');this.listener=callback;}}));
   const timer=new PomodoroTimer({}, {monotonicClock:()=>now,wallClock:()=>Date.UTC(2026,9,17)+now});
   runInNewContext(POMODORO_SCRIPT,{
@@ -53,14 +53,37 @@ test('Start, Pause, Resume, Reset use one exact revisioned POST and disable repe
   assert.equal(f.posts().length,4);assert.equal(f.text('pomo-time'),'25:00');
 });
 
-test('browser ring and countdown animate while fresh, stop on pause, and never advance phase automatically',async()=>{
+test('browser shows automatic break and session count only from server state, without posting transitions',async()=>{
   const f=fixture();const running=f.timer.action({action:'start',expectedRevision:0}).view;await f.handshake('a'.repeat(43),running);
+  assert.equal(f.text('pomo-session'),'Focus 1/4 · 0 completed');
   f.advance(1200);f.tick(100);assert.equal(f.text('pomo-time'),'24:59');assert.notEqual(f.elements.get('#pomo-ring').style.values.get('--turn'),'0deg');
   const index=f.requests.length,paused=f.click('pause');await f.respond(index,200,f.timer.action({action:'pause',expectedRevision:1}));await paused;
   const frozen=f.text('pomo-time');f.advance(2000);f.tick(100);assert.equal(f.text('pomo-time'),frozen);assert.equal(f.text('pomo-state'),'Paused');
-  const completed:PomodoroView={...f.timer.view(),status:'completed',phase:'focus',remainingSeconds:0,progress:1,revision:3,availableActions:['start','reset']};
-  f.tick(1000);await f.respond(f.requests.length-1,200,completed);assert.equal(f.text('pomo-state'),'Session complete');assert.equal(f.button('start').textContent,'Start break');
-  f.advance(1000);f.tick(100);assert.equal(f.text('pomo-time'),'00:00');assert.equal(f.posts().length,1);
+  f.timer.action({action:'resume',expectedRevision:f.timer.view().revision});f.advance(1498800);
+  // The browser waits for the authoritative transition; it never POSTs a break start.
+  f.tick(1000);await f.respond(f.requests.length-1,200,f.timer.view());
+  assert.equal(f.text('pomo-phase'),'Short break');assert.equal(f.text('pomo-session'),'After focus 1/4 · 1 completed');
+  assert.equal(f.text('pomo-time'),'05:00');assert.deepEqual(enabled(f),['pause','reset']);
+  f.advance(300000);f.tick(1000);await f.respond(f.requests.length-1,200,f.timer.view());
+  assert.equal(f.text('pomo-state'),'Break complete');assert.equal(f.button('start').textContent,'Start focus');
+  assert.deepEqual(enabled(f),['start','reset']);assert.equal(f.text('pomo-time'),'00:00');assert.equal(f.posts().length,1);
+});
+
+test('four-focus cycle displays long break, completed count and next manual focus; Reset clears the counter',async()=>{
+  const f=fixture();await f.handshake();
+  for(let n=1;n<=4;n++){
+    const before=f.timer.view();f.timer.action({action:'start',expectedRevision:before.revision});f.advance(1500000);
+    f.tick(1000);await f.respond(f.requests.length-1,200,f.timer.view());
+    assert.equal(f.text('pomo-session'),`After focus ${n}/4 · ${n} completed`);
+    assert.equal(f.text('pomo-phase'),n===4?'Long break':'Short break');
+    assert.equal(f.text('pomo-time'),n===4?'15:00':'05:00');
+    assert.equal(f.elements.get('#pomo-ring').style.values.get('--accent'),n===4?'#c4a0ff':'#79dcb0');
+    f.advance(n===4?900000:300000);f.tick(1000);await f.respond(f.requests.length-1,200,f.timer.view());
+    assert.equal(f.text('pomo-state'),'Break complete');assert.equal(f.button('start').textContent,'Start focus');
+  }
+  assert.equal(f.posts().length,0);
+  const index=f.requests.length,done=f.click('reset');await f.respond(index,200,f.timer.action({action:'reset',expectedRevision:f.timer.view().revision}));await done;
+  assert.equal(f.text('pomo-session'),'Focus 1/4 · 0 completed');assert.equal(f.text('pomo-time'),'25:00');
 });
 
 test('an older GET cannot overwrite a newer action response, even when responses arrive out of order',async()=>{
@@ -133,4 +156,13 @@ test('stale and offline countdowns freeze the last rendered interpolation, then 
     f.advance(1000);f.tick(100);assert.equal(f.text('pomo-time'),formatted(current.remainingSeconds-1));
     assert.equal(f.posts().length,0);
   }
+});
+
+
+test('a paused automatic break offers Resume in its refreshed message',async()=>{
+  const f=fixture();f.timer.action({action:'start',expectedRevision:0});f.advance(1500000);
+  f.timer.action({action:'pause',expectedRevision:f.timer.view().revision});await f.handshake();
+  assert.equal(f.text('pomo-phase'),'Short break');assert.equal(f.text('pomo-state'),'Paused');
+  assert.deepEqual(enabled(f),['resume','reset']);assert.match(f.text('pomo-message'),/^Paused\. Resume/);
+  assert.equal(f.posts().length,0);
 });

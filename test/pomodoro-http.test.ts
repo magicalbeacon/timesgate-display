@@ -5,7 +5,7 @@ import {createServer,request,type IncomingHttpHeaders,type Server} from 'node:ht
 import {PomodoroTimer} from '../src/pomodoro.ts';
 import {createPomodoroHttp,type PomodoroHttpOptions} from '../src/pomodoro-http.ts';
 
-const HOST='192.168.50.42:8081';
+const HOST='192.168.240.42:8081';
 const ORIGIN=`http://${HOST}`;
 type Headers=Record<string,string|string[]>;
 type Response={status:number;headers:IncomingHttpHeaders;text:string;json:any};
@@ -89,7 +89,7 @@ test('control GET denies mismatched, null, duplicate and cross-site origins',asy
 test('every timer route checks exact Host and rejects rebinding hosts and duplicates',async t=>{
   const f=await fixture(t);
   for(const path of ['/api/pomodoro','/api/pomodoro/control','/api/pomodoro/action']){
-    for(const host of ['evil.invalid:8081','192.168.50.42','192.168.50.42:8080','192.168.50.42.:8081',HOST+'.evil.invalid',[HOST,HOST],null]){
+    for(const host of ['evil.invalid:8081','192.168.240.42','192.168.240.42:8080','192.168.240.42.:8081',HOST+'.evil.invalid',[HOST,HOST],null]){
       const response=await f.get(path,{host});assert([400,403].includes(response.status),JSON.stringify({path,host,response}));assert.equal(response.json?.csrfToken,undefined);
     }
   }
@@ -190,16 +190,39 @@ test('valid actions update only timer state and stale or duplicate submissions r
   response=await f.post(token,action('resume',4));assert.equal(response.status,400);assert.equal(response.json.reason,'invalid_action');assert.deepEqual(response.json.view,reset);
 });
 
-test('parallel duplicate actions cannot both apply and GET expiration never starts next phase',async t=>{
+test('parallel duplicate actions cannot both apply and GET projects an automatic break without an action',async t=>{
   const f=await fixture(t);const token=await f.token();
   const responses=await Promise.all([f.post(token,action()),f.post(token,action())]);
   assert.deepEqual(responses.map(value=>value.status).sort(),[200,409]);assert.equal(f.timer.view().revision,1);
-  f.advance(70_000);
-  const completed=await f.get();assert.equal(completed.json.status,'completed');assert.equal(completed.json.remainingSeconds,0);assert.equal(completed.json.phase,'focus');assert.equal(completed.json.revision,2);
+  const updatedAt=f.timer.view().updatedAt;
+  f.advance(60_000);
+  const resting=await f.get();assert.equal(resting.json.status,'running');assert.equal(resting.json.remainingSeconds,10);assert.equal(resting.json.phase,'break');assert.equal(resting.json.revision,2);
+  assert.equal(resting.json.breakKind,'short');assert.equal(resting.json.completedFocusSessions,1);assert.equal(resting.json.updatedAt,updatedAt);
+  assert.deepEqual(resting.json.availableActions,['pause','reset']);
+  for(let n=0;n<3;n++){assert.deepEqual((await f.get()).json,resting.json);assert.deepEqual((await f.get('/api/pomodoro/control')).json.view,resting.json);}
+  assert.equal(f.actionCalls(),2);
+  f.advance(3500);const ticking=await f.get();assert.equal(ticking.json.remainingSeconds,7);assert.equal(ticking.json.revision,2);assert.equal(ticking.json.completedFocusSessions,1);
+  f.advance(6500);
+  const completed=await f.get();assert.equal(completed.json.status,'completed');assert.equal(completed.json.remainingSeconds,0);assert.equal(completed.json.phase,'break');assert.equal(completed.json.revision,3);
+  assert.equal(completed.json.updatedAt,updatedAt);assert.deepEqual(completed.json.availableActions,['start','reset']);
   for(let n=0;n<3;n++){assert.deepEqual((await f.get()).json,completed.json);assert.deepEqual((await f.get('/api/pomodoro/control')).json.view,completed.json);}
   assert.equal(f.actionCalls(),2);
   assert.equal((await f.post(token,action('reset',1))).status,409);
-  const next=await f.post(token,action('start',2));assert.equal(next.status,200);assert.equal(next.json.view.phase,'break');assert.equal(next.json.view.status,'running');
+  const next=await f.post(token,action('start',3));assert.equal(next.status,200);assert.equal(next.json.view.phase,'focus');assert.equal(next.json.view.status,'running');
+  assert.equal(next.json.view.remainingSeconds,60);assert.equal(next.json.view.revision,4);assert.equal(next.json.view.completedFocusSessions,1);assert.equal(next.json.view.focusSessionInCycle,2);
+});
+
+test('late HTTP polling crosses both deadlines once and waits for explicit Start',async t=>{
+  const f=await fixture(t),token=await f.token();const started=await f.post(token,action());assert.equal(started.status,200);
+  f.advance(24*60*60*1000);
+  const completed=(await f.get()).json;
+  assert.equal(completed.phase,'break');assert.equal(completed.status,'completed');assert.equal(completed.remainingSeconds,0);assert.equal(completed.revision,3);
+  assert.equal(completed.completedFocusSessions,1);assert.equal(completed.focusSessionInCycle,1);assert.equal(completed.breakKind,'short');assert.equal(completed.updatedAt,started.json.view.updatedAt);
+  for(let n=0;n<3;n++){f.advance(24*60*60*1000);assert.deepEqual((await f.get()).json,completed);assert.deepEqual((await f.get('/api/pomodoro/control')).json.view,completed);}
+  assert.equal(f.actionCalls(),1);
+  const stale=await f.post(token,action('pause',1));assert.equal(stale.status,409);assert.equal(stale.json.reason,'stale_revision');assert.equal(stale.json.view.revision,3);
+  const next=await f.post(token,action('start',3));assert.equal(next.status,200);assert.equal(next.json.view.phase,'focus');assert.equal(next.json.view.status,'running');
+  assert.equal(next.json.view.remainingSeconds,60);assert.equal(next.json.view.completedFocusSessions,1);assert.equal(next.json.view.focusSessionInCycle,2);assert.equal(next.json.view.revision,4);
 });
 
 test('body size is limited to 512 bytes for Content-Length and chunked requests',async t=>{

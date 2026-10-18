@@ -24,7 +24,7 @@ const pomodoroOrigin=pomodoro?requirePomodoroServer(config):undefined;
 let step=0,running=true,lastWrite:string|null=null,lastRestore:string|null=null,lastWeatherSetup:string|null=null,lastPomodoroSetup:string|null=null,nextRotation=0;
 let lastPomodoroSetupProfile:PomodoroProfile|null=null;
 const previews=new Map<number,Buffer>();let displayedSymbols:[string,string]=pairFor(config.tickers,0);
-function status(){return {version:'0.5.2',control:control.status(),rotationSeconds:config.rotationSeconds,displayedSymbols,lastWrite,lastRestore,lastWeatherSetup,lastPomodoroSetup,lastPomodoroSetupProfile,pomodoro:pomodoro?.view()??null,weather:weatherView(),quoteSource:'Finnhub US / Yahoo delayed price-only routes',historySource:'Yahoo unofficial completed daily OHLC',quotes:market.all()};}
+function status(){return {version:'0.5.3',control:control.status(),rotationSeconds:config.rotationSeconds,displayedSymbols,lastWrite,lastRestore,lastWeatherSetup,lastPomodoroSetup,lastPomodoroSetupProfile,pomodoro:pomodoro?.view()??null,weather:weatherView(),quoteSource:'Finnhub US / Yahoo delayed price-only routes',historySource:'Yahoo unofficial completed daily OHLC',quotes:market.all()};}
 const server=makeServer({status,image:screen=>previews.get(screen),...(weather?{weather:()=>weatherView()!}:{}),...(pomodoro?{pomodoro:{origin:pomodoroOrigin!,view:()=>pomodoro.view(),action:input=>pomodoro.action(input)}}:{})});
 server.listen(config.port,'0.0.0.0',()=>console.log(`Two-screen service listening on port ${config.port}; explicit arm required`));
 market.start();weather?.start();rain?.start();

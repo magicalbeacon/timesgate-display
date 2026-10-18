@@ -9,7 +9,7 @@ import {POMODORO_CAT_ANIMATION} from '../src/pomodoro-cat-animation.ts';
 import {POMODORO_CAT_BACKGROUND} from '../src/pomodoro-cat-background.ts';
 import {POMODORO_FIELDS} from '../src/pomodoro-device.ts';
 
-const HOST='192.168.50.42:8081',ORIGIN=`http://${HOST}`;
+const HOST='192.168.240.42:8081',ORIGIN=`http://${HOST}`;
 type Response={status:number;headers:IncomingHttpHeaders;text:string;json:any;bytes:Buffer};
 type Options={method?:string;headers?:Record<string,string>;body?:string};
 async function fixture(t:TestContext,enabled=true){
@@ -46,7 +46,7 @@ test('integrated dashboard, native reads, JSON, errors, and controls all deny fr
   const f=await fixture(t);
   for(const path of ['/','/healthz','/api/status','/api/pomodoro','/api/pomodoro/control','/pomodoro/static-v1.gif','/pomodoro/cat-v2.gif','/pomodoro/cat-loop-v1.gif','/pomodoro/cat-sleep-v1.gif',...POMODORO_FIELDS.map(field=>'/pomodoro/4/'+field),'/missing'])secured(await f.send(path));
   const page=await f.send('/');assert.match(page.text,/data-action="start" disabled/);assert.match(page.text,/browser-only/);
-  assert.match(page.text,/server restart resets the timer/i);assert.match(page.text,/Screen4 shows the countdown every 10 seconds/);
+  assert.match(page.text,/server restart clears the timer and session count/i);assert.match(page.text,/Screen4 shows the countdown every 10 seconds/);
   assert.equal((await f.send('/pomodoro/static-v1.gif')).headers['content-type'],'image/gif');
   const token=(await f.control()).json.csrfToken;const started=await f.post(token,'start',0);secured(started);assert.equal(started.status,200);
   const stale=await f.post(token,'reset',0);secured(stale);assert.equal(stale.status,409);
@@ -107,6 +107,58 @@ test('browser actions and read polling change only in-memory timer state, never 
   assert.doesNotMatch(server,/\b(?:setupPomodoro|setupWeather|Writer|\.arm\(|\.restore\(|\.pair\()/);
 });
 
+test('four focus sessions automatically count down three short breaks and one long break without device requests or art changes',async t=>{
+  const outbound:string[]=[];const originalFetch=globalThis.fetch;
+  globalThis.fetch=async input=>{outbound.push(String(input));throw new Error('External/device requests forbidden in this test');};
+  t.after(()=>{globalThis.fetch=originalFetch;});
+  const f=await fixture(t),token=(await f.control()).json.csrfToken;
+  const paths=['/pomodoro/static-v1.gif','/pomodoro/cat-v2.gif','/pomodoro/cat-loop-v1.gif','/pomodoro/cat-sleep-v1.gif'];
+  const artwork=await Promise.all(paths.map(async path=>({path,bytes:(await f.send(path)).bytes})));
+  const unchangedArtwork=async()=>{for(const {path,bytes} of artwork)assert.deepEqual((await f.send(path)).bytes,bytes,path);};
+  let view=(await f.send('/api/pomodoro')).json;
+  assert.equal(view.completedFocusSessions,0);assert.equal(view.focusSessionInCycle,1);assert.equal(view.breakDurationSeconds,300);assert.equal(view.longBreakDurationSeconds,900);
+  for(let session=1;session<=4;session++){
+    const started=await f.post(token,'start',view.revision);assert.equal(started.status,200);view=started.json.view;
+    assert.equal(view.phase,'focus');assert.equal(view.status,'running');assert.equal(view.remainingSeconds,1500);assert.equal(view.durationSeconds,1500);
+    assert.equal(view.completedFocusSessions,session-1);assert.equal(view.focusSessionInCycle,session);assert.equal(view.breakKind,null);assert.equal(view.revision,3*session-2);
+    assert.equal((await f.send('/pomodoro/4/countdown')).json.DispData,'25:00');await unchangedArtwork();
+    f.advance(1_499_999);assert.equal((await f.send('/pomodoro/4/countdown')).json.DispData,'00:01');assert.equal((await f.send('/api/pomodoro')).json.phase,'focus');
+    f.advance(1);
+    const duration=session===4?900:300;
+    view=(await f.send('/api/pomodoro')).json;
+    assert.equal(view.phase,'break');assert.equal(view.status,'running');assert.equal(view.breakKind,session===4?'long':'short');
+    assert.equal(view.remainingSeconds,duration);assert.equal(view.durationSeconds,duration);assert.equal(view.breakDurationSeconds,300);assert.equal(view.longBreakDurationSeconds,900);
+    assert.equal(view.completedFocusSessions,session);assert.equal(view.focusSessionInCycle,session);assert.equal(view.revision,3*session-1);assert.equal(view.updatedAt,started.json.view.updatedAt);
+    assert.deepEqual(view.availableActions,['pause','reset']);assert.deepEqual((await f.control()).json.view,view);assert.deepEqual((await f.send('/api/status')).json.pomodoro,view);
+    assert.equal((await f.send('/pomodoro/4/countdown')).json.DispData,session===4?'15:00':'05:00');assert.equal((await f.send('/pomodoro/4/phase')).json.DispData,'BREAK');
+    assert.equal((await f.send('/pomodoro/4/status')).json.DispData,'RUNNING');await unchangedArtwork();assert.equal(f.actionCalls(),session);
+    f.advance(1000);assert.equal((await f.send('/pomodoro/4/countdown')).json.DispData,session===4?'14:59':'04:59');assert.equal((await f.send('/api/pomodoro')).json.revision,view.revision);
+    f.advance((duration-1)*1000);view=(await f.send('/api/pomodoro')).json;
+    assert.equal(view.phase,'break');assert.equal(view.status,'completed');assert.equal(view.remainingSeconds,0);assert.equal(view.completedFocusSessions,session);assert.equal(view.revision,3*session);
+    assert.deepEqual(view.availableActions,['start','reset']);assert.equal((await f.send('/pomodoro/4/countdown')).json.DispData,'00:00');assert.equal((await f.send('/pomodoro/4/status')).json.DispData,'DONE - START WEB');
+    f.advance(60_000);assert.deepEqual((await f.send('/api/pomodoro')).json,view);assert.deepEqual((await f.control()).json.view,view);await unchangedArtwork();assert.equal(f.actionCalls(),session);
+  }
+  const fifth=await f.post(token,'start',view.revision);assert.equal(fifth.status,200);
+  assert.equal(fifth.json.view.phase,'focus');assert.equal(fifth.json.view.remainingSeconds,1500);assert.equal(fifth.json.view.completedFocusSessions,4);assert.equal(fifth.json.view.focusSessionInCycle,1);assert.equal(fifth.json.view.revision,13);
+  const reset=await f.post(token,'reset',fifth.json.view.revision);assert.equal(reset.status,200);assert.equal(reset.json.view.status,'idle');assert.equal(reset.json.view.completedFocusSessions,0);assert.equal(reset.json.view.focusSessionInCycle,1);assert.equal(reset.json.view.breakKind,null);
+  await unchangedArtwork();assert.equal(f.actionCalls(),6);assert.deepEqual(outbound,[]);
+});
+
+test('late integrated polling anchors the automatic break to focus expiry and never starts another focus',async t=>{
+  for(const lateSeconds of [75,300,86_400]){
+    const f=await fixture(t),token=(await f.control()).json.csrfToken;const started=await f.post(token,'start',0);assert.equal(started.status,200);
+    f.advance((1500+lateSeconds)*1000);
+    const remaining=Math.max(0,300-lateSeconds),completed=remaining===0;
+    const view=(await f.send('/api/pomodoro')).json;
+    assert.equal(view.phase,'break');assert.equal(view.status,completed?'completed':'running');assert.equal(view.remainingSeconds,remaining);assert.equal(view.completedFocusSessions,1);assert.equal(view.revision,completed?3:2);
+    assert.equal((await f.send('/pomodoro/4/countdown')).json.DispData,completed?'00:00':'03:45');assert.deepEqual((await f.control()).json.view,view);assert.equal(f.actionCalls(),1);
+    f.advance(7*24*60*60*1000);const finished=(await f.send('/api/pomodoro')).json;
+    assert.equal(finished.phase,'break');assert.equal(finished.status,'completed');assert.equal(finished.remainingSeconds,0);assert.equal(finished.completedFocusSessions,1);assert.equal(finished.revision,3);
+    assert.equal((await f.send('/pomodoro/4/countdown')).json.DispData,'00:00');assert.equal(f.actionCalls(),1);
+    const next=await f.post(token,'start',finished.revision);assert.equal(next.status,200);assert.equal(next.json.view.phase,'focus');assert.equal(next.json.view.status,'running');assert.equal(next.json.view.remainingSeconds,1500);assert.equal(next.json.view.completedFocusSessions,1);assert.equal(next.json.view.focusSessionInCycle,2);
+  }
+});
+
 test('a new process starts idle and its CSRF token cannot reuse a previous process token',async t=>{
   const before=await fixture(t),oldToken=(await before.control()).json.csrfToken;
   assert.equal((await before.post(oldToken,'start',0)).json.view.status,'running');before.advance(30_000);
@@ -127,11 +179,10 @@ test('static cat background stays identical through focus, break and reset; lega
  const legacy=await f.send('/pomodoro/static-v1.gif');assert.equal(legacy.status,200);assert.notDeepEqual(legacy.bytes,art.bytes);
  const token=(await f.control()).json.csrfToken;
  await f.post(token,'start',0);f.advance(1500000);
- const completed=(await f.send('/api/pomodoro')).json;assert.equal(completed.status,'completed');
- const started=await f.post(token,'start',completed.revision);assert.equal(started.json.view.phase,'break');
+ const resting=(await f.send('/api/pomodoro')).json;assert.equal(resting.status,'running');assert.equal(resting.phase,'break');assert.equal(resting.breakKind,'short');assert.equal(f.actionCalls(),1);
  assert.deepEqual((await f.send('/pomodoro/cat-v2.gif')).bytes,art.bytes);
  assert.equal((await f.send('/pomodoro/4/countdown')).json.DispData,'05:00');
- await f.post(token,'reset',started.json.view.revision);
+ await f.post(token,'reset',resting.revision);
  assert.deepEqual((await f.send('/pomodoro/cat-v2.gif')).bytes,art.bytes);
  assert.equal((await f.send('/pomodoro/cat-break.gif')).status,404);
  assert.equal((await f.send('/pomodoro/cat-v2.gif',{method:'POST'})).status,405);
@@ -151,11 +202,10 @@ test('animated cat GET is fixed, opt-in and phase-independent; every-second nati
 });
 
 
-test('sleeping loop is a separate fixed GET asset, not an automatic phase change',async t=>{
+test('sleeping loop stays a separate fixed GET asset through the automatic break',async t=>{
  const f=await fixture(t);const art=await f.send('/pomodoro/cat-sleep-v1.gif');
  assert.equal(art.status,200);assert.equal(art.headers['content-type'],'image/gif');secured(art);assert.deepEqual(art.bytes,POMODORO_CAT_SLEEP_ANIMATION);assert.notDeepEqual(art.bytes,POMODORO_CAT_ANIMATION);assert.equal(f.actionCalls(),0);
- const token=(await f.control()).json.csrfToken;await f.post(token,'start',0);f.advance(1500000);const completed=(await f.control()).json.view;assert.equal(completed.status,'completed');
- const resting=await f.post(token,'start',completed.revision);assert.equal(resting.json.view.phase,'break');
+ const token=(await f.control()).json.csrfToken;await f.post(token,'start',0);f.advance(1500000);const resting=(await f.control()).json.view;assert.equal(resting.status,'running');assert.equal(resting.phase,'break');assert.equal(resting.breakKind,'short');
  assert.deepEqual((await f.send('/pomodoro/cat-sleep-v1.gif')).bytes,art.bytes);assert.deepEqual((await f.send('/pomodoro/cat-loop-v1.gif')).bytes,POMODORO_CAT_ANIMATION);
- assert.equal((await f.send('/pomodoro/cat-sleep-v1.gif',{method:'POST'})).status,405);assert.equal(f.actionCalls(),2);
+ assert.equal((await f.send('/pomodoro/cat-sleep-v1.gif',{method:'POST'})).status,405);assert.equal(f.actionCalls(),1);
 });
