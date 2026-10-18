@@ -4,11 +4,11 @@ A separate Docker source package for a Raspberry Pi 3B+ running **64-bit Raspber
 
 **Stock images target only human screens 1 and 2 (the leftmost two). Optional weather setup targets screen 5 only; optional Pomodoro setup targets screen 4 only. Screen 3 stays app-controlled and is never cleared, set up or sent images.** Both native setup commands are separate explicit opt-ins; automatic stock targeting still rejects other numbers. No global image-ID reset exists. Never run a second automatic image writer at the same time.
 
-Release **0.5.0** adds optional browser Pomodoro controls and native screen4 countdown. Read **UPGRADE-POMODORO.md** for the full preserve-`.env` upgrade and explicit setup steps. The timer stays idle until Start; the physical countdown polls every 10 seconds, while the smooth colour-changing ring is browser-only.
+Release **0.5.2** adds independently selected screen-4 experiments: one-second native countdown polling and tiny typing and sleeping pixel-cat GIF loops. The existing static cat / 10-second profile remains the default and fallback. Read **UPGRADE-POMODORO.md** for the backup/unzip/.env-preserving rebuild, read-only checks, separate experiments and fallback commands. No new environment keys are needed.
 
-For a failed weather setup, read **UPGRADE-DIAGNOSTICS.md** first. Release 0.4.3 reports bounded failure reasons without retrying or changing the 0.4.2 layout.
+Animation is decorative and, if supported, keeps looping while idle or paused. Animated background plus native text and exact one-second timing remain unverified on this firmware. No per-frame uploads or automatic phase-driven device writes are added. Each timer phase still starts manually; its progress ring remains browser-only.
 
-Already running the combined app? Read **UPGRADE-WEATHER.md** to add weather while preserving your existing `.env`. The stock image-update behavior is unchanged in this release; no speculative Loading fix is included.
+**Keep stocks stopped and weather setup on hold.** This update does not diagnose or fix a prior weather setup failure. Only explicit screen-4 experiments are part of this update; no stock Loading fix, global reset or other-screen setup is included. UPGRADE-DIAGNOSTICS.md and UPGRADE-WEATHER.md remain earlier references, not instructions to retry weather now.
 
 ## What rotates
 
@@ -153,3 +153,15 @@ The rain row, for example `52% 23-00 SGT`, means the model's chance of precipita
 Open-Meteo.com is credited on the physical panel, independently of NEA. Fresh blocks need no repeated OK label. A stale forecast becomes STALE; stale observations show `...`/STALE while preserving the dated Semb. caption; stale rain shows `...`/STALE. Missing rain says N/A. Unsupported signed temperature formatting shows `...`/RANGE without stripping the sign from the API data. Rain and observations remain independently labelled. `/api/weather` retains the named interval, retrieval time and source definition; `generationtime_ms` is not treated as forecast issue time. Open-Meteo free use is for personal/non-commercial use; data attribution is under [CC BY 4.0](https://open-meteo.com/en/licence), with [API terms](https://open-meteo.com/en/terms) and [parameter definitions](https://open-meteo.com/en/docs). The forecast-issue field remains available through the read-only API. A stopped stock writer does not undo already-installed native weather polling; select a replacement on screen 5 only in the Divoom app to remove it. Disabling the server/weather endpoints can leave the last display frozen.
 
 Official data: [Singapore two-hour forecast dataset](https://data.gov.sg/datasets/d_3f9e064e25005b0e42969944ccaf2e7a/view), [air temperature dataset](https://data.gov.sg/datasets/d_66b77726bbae1b33f218db60ff5861f0/view), [relative humidity dataset](https://data.gov.sg/datasets/d_2d3b0c4da128a9a59efca806441e1429/view), [public API rate limits](https://guide.data.gov.sg/developer-guide/api-overview/api-rate-limits).
+
+## Optional Pomodoro
+
+Use **UPGRADE-POMODORO.md**. Existing POMODORO_ENABLED and SERVER_BASE_URL settings are preserved. Browser Start/Pause/Resume/Reset control only the server-owned timer. Each 25-minute focus and 5-minute break starts manually; restarting resets to idle.
+
+Explicit setup accepts independent --poll-seconds 1|10 and --background static|animated|sleeping options. Omit both for the original static / 10-second fallback. Every choice uses one item on human screen 4, TextId 26, type 23, centred font 188 and the same countdown URL. Setup remains stopped-only and opt-in. Separate background URLs serve embedded typing and sleeping loops; previous static URLs and all legacy text endpoints keep their original behavior. The original curled-up concept remains available as design art, and a new sleeping loop is separately selectable. Timer phase changes do not switch the selected background.
+
+The minimal panel has no phase, pause or freshness label. Lost polling can leave a countdown frozen; decorative animation can keep moving through a lost connection. Check the dashboard for actual state and connectivity. lastPomodoroSetupProfile reports the last acknowledged request in this process, not device read-back.
+
+[One-second polling precedent](https://github.com/Firemoon777/divoom-timegate-bg3/blob/master/server/__main__.py) supports a cautious experiment, not a universal hardware guarantee. [Native polling guidance](https://github.com/averhaegen/hacs-divoom-times-gate-dev/blob/main/docs/DISPDATA.md) documents text retrieval after setup. Animated BackgroudGif with the text overlay still needs a physical test. The short loop's frame and byte limits are our engineering choices, not claimed firmware limits.
+
+Timer controls are available to anyone who can open the configured dashboard on the trusted LAN. Exact Host/Origin checks, CSRF tokens and strict POST payloads mitigate cross-site requests; they are not a login or protection for an internet-exposed service.

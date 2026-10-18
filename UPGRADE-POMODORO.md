@@ -1,12 +1,18 @@
-# Add screen4 Pomodoro (0.5.0)
+# Pixel-cat experiments 0.5.2
 
-The dashboard gets Start, Pause, Resume and Reset, a smooth progress ring, and a server-owned 25-minute focus / 5-minute break timer. Each phase starts manually. Screen4 uses native text polling every **10 seconds**, so its countdown changes in roughly ten-second steps. The physical panel has static artwork and a completion percentage; the animated, colour-changing ring is browser-only. Font400 and native alignment are documented upstream but not hardware-verified here.
+The existing static cat with 10-second native polling is the default and fallback. This update offers **two independent experiments on screen 4 only**: one-second text polling and small looping cat GIFs (typing or sleeping). Neither is automatically installed. No additional .env key is required.
 
-No timer starts at boot. Refreshing the browser does not reset it; restarting the container resets it to an idle 25-minute focus session. An outage can leave the physical panel frozen: its bottom SGT update time is a freshness cue, not a guaranteed warning. There are no sounds or automatic phase advances.
+The selected animated GIF is decorative: if the firmware plays it, it continues while idle, paused, focusing, resting or complete. It does not prove that the timer or server is alive. The countdown can freeze when polling is lost; check the dashboard for phase, pause state and connectivity. Typing and sleeping backgrounds are selected explicitly; starting a break does not automatically change the picture. The browser ring remains browser-only. Each phase still starts manually, and a restart resets the timer to idle.
 
-## 1. Put the new ZIP beside the current project
+One-second type-23 polling has [prior Times Gate implementation evidence](https://github.com/Firemoon777/divoom-timegate-bg3/blob/master/server/__main__.py), but exact timing on this firmware is unverified. Animated GIF background plus native text is experimental. The device may ignore animation, retain one frame, or show Loading; an acknowledgement alone does not prove rendering. No per-frame uploads, automatic setup, phase-driven background changes or automatic retries were added.
 
-Save the source package as `~/timesgate-combined.zip` on the Pi. These commands assume the existing working installation is `~/timesgate-combined`. If yours is elsewhere, change those paths first. Do not copy the example over your existing `.env`.
+**Keep stocks stopped and weather setup on hold.** A prior weather failure, if present, is not resolved by this update. Screen 3 remains app-controlled; these experiments send only a single targeted LCD3 (human screen 4) item-list request. Do not use whole-device themes, resets or all-screen setup commands.
+
+## 1. Back up and extract
+
+Save the new attachment as ~/timesgate-pixel-cat-0.5.2.zip. The commands assume the current project is ~/timesgate-combined. Adjust paths before running if different. Keep the previous ZIP and backup folder; do not remove the Compose state volume.
+
+Run this block only once, in the same terminal. Stop if any command fails; do not continue with a failed extraction or missing .env.
 
 ```sh
 cd ~/timesgate-combined
@@ -15,62 +21,83 @@ sudo docker compose down
 cd ~
 backup="timesgate-combined-backup-$(date +%Y%m%d-%H%M%S)"
 mv timesgate-combined "$backup"
-unzip timesgate-combined.zip
+unzip timesgate-pixel-cat-0.5.2.zip
 cp "$backup/.env" timesgate-combined/.env
 chmod 600 timesgate-combined/.env
 cd timesgate-combined
-nano .env
 ```
 
-Add or edit these two lines locally, leaving the API key, token, ticker list and other working settings intact:
+Keep the working .env. Do not overwrite it with .env.example or share its contents. Existing POMODORO_ENABLED=true and SERVER_BASE_URL=http://YOUR_PI_LAN_IP:8081 remain valid. SERVER_BASE_URL must use the Pi's private LAN IPv4 address, not the Divoom address, localhost or a Docker address. Keep TARGET_SCREENS=1,2, PORT=8081 and the existing weather/write flags. This release changes no credentials.
 
-```dotenv
-POMODORO_ENABLED=true
-SERVER_BASE_URL=http://YOUR_PI_LAN_IP:8081
-```
-
-Use the Pi's private LAN IPv4 address, not the Divoom's address, localhost or a Docker address. Keep `PORT=8081` and `TARGET_SCREENS=1,2`. Existing optional `WEATHER_ENABLED` stays as it was. No new credential is needed. `DEVICE_WRITES_ENABLED=true` is required only for the deliberate setup/stock writes below; the browser timer itself works with device writes disabled.
-
-## 2. Build and start, still stopped
+## 2. Build and verify the stopped service
 
 ```sh
 sudo docker compose up -d --build
 sudo docker compose exec timesgate node -p "JSON.parse(require('fs').readFileSync('package.json')).version"
 sudo docker compose exec timesgate node src/cli.ts status
-```
-
-The version must be `0.5.0`. Open `http://YOUR_PI_LAN_IP:8081` using **the same IP and port configured above**. A hostname or another origin is rejected by the timer controls. Test Start/Pause/Resume/Reset in the browser first. These buttons change only local timer state and never install layouts, arm stocks or send device commands.
-
-## 3. Install only screen4, explicitly
-
-Do not run this if another device operation is still unresolved. First run the read-only probe and check it succeeds:
-
-```sh
 sudo docker compose exec timesgate node src/cli.ts probe
 ```
 
-Only after the probe succeeds and you are ready to replace screen4:
+Version must be 0.5.2, stock control stopped/unarmed, and the read-only probe successful. An existing halted flag is deliberately retained; do not clear it by arming stocks. Rebuilding alone changes no installed layout. If build, startup or probe fails, stop here and retain the bounded error. Never share broad printenv, docker compose config or credentials.
+
+Open http://YOUR_PI_LAN_IP:8081 on the same trusted LAN. Confirm the existing cat URL /pomodoro/cat-v2.gif and the new /pomodoro/cat-loop-v1.gif and /pomodoro/cat-sleep-v1.gif load in a browser, and /pomodoro/4/countdown returns a string DispData. Browser GIF playback is a preview, not evidence of device support. The native device must reach these URLs too.
+
+The dashboard has no login; keep port 8081 off the internet and untrusted networks. Browser controls have Host/Origin, CSRF and POST protections, but do not provide user authentication. Start/Pause/Resume/Reset affect only the local timer and never send device commands.
+
+## 3. Test faster text first, keeping the static cat
+
+Only after the checks above pass, install this one screen-4 profile. Stock rotation must remain stopped.
 
 ```sh
-sudo docker compose exec timesgate node src/cli.ts pomodoro setup --apply
+sudo docker compose exec timesgate node src/cli.ts pomodoro setup --apply --poll-seconds 1 --background static
+sleep 3
 sudo docker compose exec timesgate node src/cli.ts status
 ```
 
-The command queues one native `Draw/SendHttpItemList` setup for internal LCD3 (human screen4). The service must be running and stock rotation stopped. Check `runtime.lastPomodoroSetup` after a second or two, and check the physical screen. An acknowledgement is not proof that the firmware rendered it. Failed/uncertain writes halt; **do not repeatedly retry**. Share only the sanitized reason, never `.env`, broad `printenv` or `docker compose config` output.
+Check lastPomodoroSetup for the acknowledgement and lastPomodoroSetupProfile for static / 1. Start the timer on the dashboard and visually check screen 4 for roughly one-second changes without repeated Loading. Network timing may skip a displayed second. Reset when finished. No physical response or a failed request is not permission to retry blindly.
 
-This release does not claim to fix weather setup failures. Do not rerun weather setup as part of adding Pomodoro.
+## 4. Test animation separately, keeping 10-second text polling
 
-After screen4 is confirmed and any halt has been understood, stock rotation can be explicitly resumed:
+After the static test is understood, this changes only the background experiment relative to the known fallback:
 
 ```sh
-sudo docker compose exec timesgate node src/cli.ts arm --apply
+sudo docker compose exec timesgate node src/cli.ts pomodoro setup --apply --poll-seconds 10 --background animated
+sleep 3
 sudo docker compose exec timesgate node src/cli.ts status
 ```
 
-## Stop and restore
+Look for the blink/paw-tap loop and intact countdown on screen 4. A brief one-time setup transition is possible; no recurring setup or frame pushing occurs. Observe idle/paused too: movement remains decorative. The other screens should remain unchanged. Stop and report unexpected behavior; do not reset the whole device.
 
-Pause or Reset on the dashboard stops/clears the timer without changing a layout. To stop stock pushes, use `node src/cli.ts stop` through Compose as above. Disabling Pomodoro requires setting `POMODORO_ENABLED=false` locally and recreating the container; the last physical display can remain frozen. To restore screen4's previous app face, select **screen4 only** in the Divoom app. There is no automatic backup/restore of custom app content. Never apply an all-screen theme for this step.
+## 5. Combine only after both separate tests work
 
-## Local control security
+```sh
+sudo docker compose exec timesgate node src/cli.ts pomodoro setup --apply --poll-seconds 1 --background animated
+sleep 3
+sudo docker compose exec timesgate node src/cli.ts status
+```
 
-The LAN service has no user login. Anyone on your trusted LAN who can open the configured dashboard can operate the timer. Keep port8081 off the internet and off untrusted networks. Control is POST-only, with exact Host/Origin checks, a per-process CSRF nonce, strict bounded JSON, stale-revision rejection, framing protection and no CORS. These checks mitigate cross-site browser requests; they do not replace authentication for an exposed server. Tokens/API keys remain server-side. Native polling GETs are read-only.
+The profile in status records only the last acknowledged setup during this process. It is not device read-back and becomes null on restart; the device may retain its old layout. None of these commands arms stocks or retries weather.
+
+## Optional sleeping/break loop
+
+For the resting cat with gentle breathing and an ear twitch, select the sleeping background explicitly. This is a separate screen-4 setup; Start break on the web does not select it automatically. You can choose --poll-seconds 10 instead to test its animation independently first.
+
+```sh
+sudo docker compose exec timesgate node src/cli.ts pomodoro setup --apply --poll-seconds 1 --background sleeping
+sleep 3
+sudo docker compose exec timesgate node src/cli.ts status
+```
+
+The sleeping loop also keeps playing during focus, pause or idle if it remains selected. To return to typing, deliberately select --background animated with the desired polling interval. Do not repeatedly reinstall backgrounds to simulate animation; the GIF itself should loop on the device. If a setup fails or its result is uncertain, inspect the screen and error before another write.
+
+## Static, 10-second fallback
+
+If the device is responsive and a deliberate fallback is appropriate, use the original profile:
+
+```sh
+sudo docker compose exec timesgate node src/cli.ts pomodoro setup --apply --poll-seconds 10 --background static
+sleep 3
+sudo docker compose exec timesgate node src/cli.ts status
+```
+
+The unqualified pomodoro setup --apply command also selects this fallback. If any setup times out, is rejected, or has uncertain results, inspect the panel and sanitized status before attempting another write. Stock stop does not remove a previously installed native poller. Selecting another face for screen 4 only in the Divoom app is a separate manual alternative; avoid all-screen/theme changes.

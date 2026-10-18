@@ -1,3 +1,4 @@
+import {pomodoroProfile,type PomodoroProfile} from './pomodoro-profile.ts';
 import {readFileSync,existsSync} from 'node:fs';
 import {loadConfig,pairFor,fingerprint,weatherFingerprint,pomodoroFingerprint,requirePomodoroServer} from './config.ts';
 import {Control} from './control.ts';
@@ -21,8 +22,9 @@ function weatherView(){return weather?{...weather.view(),rain:{...rain!.view(),m
 const pomodoro=config.pomodoroEnabled?new PomodoroTimer():undefined;
 const pomodoroOrigin=pomodoro?requirePomodoroServer(config):undefined;
 let step=0,running=true,lastWrite:string|null=null,lastRestore:string|null=null,lastWeatherSetup:string|null=null,lastPomodoroSetup:string|null=null,nextRotation=0;
+let lastPomodoroSetupProfile:PomodoroProfile|null=null;
 const previews=new Map<number,Buffer>();let displayedSymbols:[string,string]=pairFor(config.tickers,0);
-function status(){return {version:'0.5.0',control:control.status(),rotationSeconds:config.rotationSeconds,displayedSymbols,lastWrite,lastRestore,lastWeatherSetup,lastPomodoroSetup,pomodoro:pomodoro?.view()??null,weather:weatherView(),quoteSource:'Finnhub US / Yahoo delayed price-only routes',historySource:'Yahoo unofficial completed daily OHLC',quotes:market.all()};}
+function status(){return {version:'0.5.2',control:control.status(),rotationSeconds:config.rotationSeconds,displayedSymbols,lastWrite,lastRestore,lastWeatherSetup,lastPomodoroSetup,lastPomodoroSetupProfile,pomodoro:pomodoro?.view()??null,weather:weatherView(),quoteSource:'Finnhub US / Yahoo delayed price-only routes',historySource:'Yahoo unofficial completed daily OHLC',quotes:market.all()};}
 const server=makeServer({status,image:screen=>previews.get(screen),...(weather?{weather:()=>weatherView()!}:{}),...(pomodoro?{pomodoro:{origin:pomodoroOrigin!,view:()=>pomodoro.view(),action:input=>pomodoro.action(input)}}:{})});
 server.listen(config.port,'0.0.0.0',()=>console.log(`Two-screen service listening on port ${config.port}; explicit arm required`));
 market.start();weather?.start();rain?.start();
@@ -47,8 +49,9 @@ async function cycle(){
     if(existsSync(control.path('POMODORO_REQUEST'))){
       let request:any;try{request=JSON.parse(readFileSync(control.path('POMODORO_REQUEST'),'utf8'));}catch{request=null;}
       control.remove('POMODORO_REQUEST');
-      if(!control.isArmed()&&pomodoro&&request?.fingerprint===pomodoroFingerprint(config)&&request?.stopVersion===control.stopVersion()&&Number.isFinite(request?.at)&&Date.now()-request.at>=0&&Date.now()-request.at<60000){
-        try{await setupPomodoro(config,control,true,request.stopVersion);lastPomodoroSetup='Screen4 native Pomodoro setup acknowledged';}
+      let profile:PomodoroProfile|null=null;try{profile=pomodoroProfile(request?.profile);}catch{}
+      if(!control.isArmed()&&pomodoro&&profile&&request?.fingerprint===pomodoroFingerprint(config,profile)&&request?.stopVersion===control.stopVersion()&&Number.isFinite(request?.at)&&Date.now()-request.at>=0&&Date.now()-request.at<60000){
+        try{await setupPomodoro(config,control,true,request.stopVersion,fetch,profile);lastPomodoroSetup='Screen4 native Pomodoro setup acknowledged';lastPomodoroSetupProfile=profile;}
         catch(error){lastPomodoroSetup=`Pomodoro setup failed (${deviceFailureReason(error)}); inspect screen4 before retrying`;}
       } else lastPomodoroSetup='Pomodoro setup rejected; stop stock rotation and check configuration';
     }

@@ -1,4 +1,3 @@
-// Private addresses and credential values below are synthetic, mocked test fixtures.
 import {test,type TestContext} from 'node:test';
 import assert from 'node:assert/strict';
 import {existsSync,mkdtempSync,readFileSync,rmSync} from 'node:fs';
@@ -70,23 +69,19 @@ test('native Pomodoro layout targets only physical screen4 with exact bounded ce
  assert.equal(POMODORO_SCREEN,3);assert.equal(POMODORO_POLL_SECONDS,10);assert.deepEqual(POMODORO_FIELDS,fields);
  assert.deepEqual(Object.keys(payload),['Command','LcdIndex','NewFlag','BackgroudGif','ItemList']);
  assert.equal(payload.Command,'Draw/SendHttpItemList');assert.equal(payload.LcdIndex,3);assert.equal(payload.NewFlag,1);
- assert.equal(payload.BackgroudGif,env.SERVER_BASE_URL+'/pomodoro/static-v1.gif');
+ assert.equal(payload.BackgroudGif,env.SERVER_BASE_URL+'/pomodoro/cat-v2.gif');
  assert.deepEqual(POMODORO_ROWS.map(({field,x,y,width,height,font,align})=>({field,x,y,width,height,font,align})),[
-  {field:'phase',x:0,y:19,width:128,height:16,font:4,align:3},
-  {field:'countdown',x:9,y:39,width:110,height:33,font:400,align:3},
-  {field:'progress',x:0,y:77,width:128,height:16,font:4,align:3},
-  {field:'status',x:0,y:94,width:128,height:16,font:4,align:3},
-  {field:'updated',x:0,y:112,width:128,height:16,font:4,align:3},
+  {field:'countdown',x:0,y:108,width:128,height:16,font:188,align:3},
  ]);
- assert.equal(payload.ItemList.length,5);assert.deepEqual(payload.ItemList.map(row=>row.TextId),[25,26,27,28,29]);
+ assert.equal(payload.ItemList.length,1);assert.deepEqual(payload.ItemList.map(row=>row.TextId),[26]);
  payload.ItemList.forEach((row,index)=>{
   assert.deepEqual(Object.keys(row),['TextId','type','x','y','dir','font','TextWidth','Textheight','TextString','speed','color','update_time','align']);
   assert.equal(row.type,23);assert.equal(row.dir,0);assert.equal(row.speed,100);assert.equal(row.update_time,10);assert.equal(row.align,3);
-  assert.equal(row.TextString,`${env.SERVER_BASE_URL}/pomodoro/4/${fields[index]}`);
+  assert.equal(row.TextString,`${env.SERVER_BASE_URL}/pomodoro/4/countdown`);
   assert(row.x>=0&&row.y>=0&&row.TextWidth>0&&row.Textheight>0&&row.x+row.TextWidth<=128&&row.y+row.Textheight<=128);
   assert.equal(row.x+row.TextWidth/2,64);assert.match(row.color,/^#[0-9A-F]{6}$/);
  });
- assert.equal(payload.ItemList.filter(row=>row.font===400).length,1);
+ assert.equal(payload.ItemList.filter(row=>row.font===188).length,1);
  for(let i=0;i<payload.ItemList.length;i++)for(let j=i+1;j<payload.ItemList.length;j++){
   const a=payload.ItemList[i],b=payload.ItemList[j];
   assert(a.x+a.TextWidth<=b.x||b.x+b.TextWidth<=a.x||a.y+a.Textheight<=b.y||b.y+b.Textheight<=a.y,'polling text rectangles must not overlap');
@@ -107,6 +102,7 @@ test('LCD labels distinguish phases and manual completion and keep standard text
  }
  for(const [progress,expected] of [[-1,'0% COMPLETE'],[0,'0% COMPLETE'],[0.019,'1% COMPLETE'],[0.999,'99% COMPLETE'],[1,'100% COMPLETE'],[2,'100% COMPLETE']] as const)assert.equal(pomodoroText(view({progress}),'progress'),expected);
  assert.equal(pomodoroText(view(),'updated',Date.UTC(2026,9,17,13,4,9)),'21:04:09 SGT');
+ assert.equal(pomodoroText(view(),'updated',Date.UTC(2026,9,17,16,0,9)),'00:00:09 SGT');
  for(const field of ['unknown','constructor','__proto__','LocalToken'])assert.throws(()=>pomodoroText(view(),field),/Unsupported Pomodoro field/);
 });
 
@@ -167,7 +163,7 @@ test('exact-payload guard fails closed on any other command, LCD, poll URL or ex
   ['background URL',p=>{p.BackgroudGif='http://8.8.8.8/other.gif';}],
   ['empty rows',p=>{p.ItemList=[];}],
   ['different panel poll',p=>{p.ItemList[0].TextString=env.SERVER_BASE_URL+'/pomodoro/5/phase';}],
-  ['different font',p=>{p.ItemList[1].font=246;}],
+  ['different font',p=>{p.ItemList[0].font=246;}],
   ['out-of-bounds row',p=>{p.ItemList[0].TextWidth=129;}],
   ['extra display mask',p=>{p.LcdArray=[1,1,1,1,1];}],
   ['extra LCD ID',p=>{p.LcdId=2;}],

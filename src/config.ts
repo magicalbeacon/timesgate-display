@@ -1,3 +1,4 @@
+import {pomodoroProfile} from './pomodoro-profile.ts';
 import {isIP} from 'node:net';
 import { createHash } from 'node:crypto';
 import { loadDevice, type DeviceConfig } from './device.ts';
@@ -36,4 +37,4 @@ function requirePrivateServer(config:Config):string {
 export function weatherFingerprint(config:Config):string{return createHash('sha256').update(JSON.stringify({stock:fingerprint(config),server:requireWeatherServer(config),screen:4})).digest('hex');}
 
 export function requirePomodoroServer(config:Config):string {if(!config.pomodoroEnabled)throw new Error('Enable Pomodoro before setup');return requirePrivateServer(config);}
-export function pomodoroFingerprint(config:Config):string{return createHash('sha256').update(JSON.stringify({stock:fingerprint(config),server:requirePomodoroServer(config),screen:3})).digest('hex');}
+export function pomodoroFingerprint(config:Config,profile:unknown=undefined):string{return createHash('sha256').update(JSON.stringify({stock:fingerprint(config),server:requirePomodoroServer(config),screen:3,profile:pomodoroProfile(profile)})).digest('hex');}

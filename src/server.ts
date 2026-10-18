@@ -1,8 +1,11 @@
+import {POMODORO_CAT_SLEEP_ANIMATION} from './pomodoro-cat-sleep-animation.ts';
+import {POMODORO_CAT_ANIMATION} from './pomodoro-cat-animation.ts';
 import {createServer,type Server} from 'node:http';
 import {WEATHER_BACKGROUND,WEATHER_ILLUSTRATED_BACKGROUND,WEATHER_SEPARATED_BACKGROUND,WEATHER_CENTERED_BACKGROUND,WEATHER_THERMOMETER_BACKGROUND} from './weather-background.ts';
 import {WEATHER_FIELDS,weatherText,type WeatherView} from './weather.ts';
 import {createPomodoroHttp,type PomodoroHttpOptions} from './pomodoro-http.ts';
 import {POMODORO_BACKGROUND} from './pomodoro-background.ts';
+import {POMODORO_CAT_BACKGROUND} from './pomodoro-cat-background.ts';
 import {pomodoroText,POMODORO_FIELDS} from './pomodoro-device.ts';
 import type {PomodoroView} from './pomodoro.ts';
 import {POMODORO_CSS,POMODORO_HTML,POMODORO_SCRIPT} from './pomodoro-ui.ts';
@@ -24,6 +27,9 @@ export function makeServer(state:ServerState):Server {
     else if(path==='/weather/thermometer-v42.gif'&&state.weather){res.setHeader('Content-Type','image/gif');res.end(WEATHER_THERMOMETER_BACKGROUND);}
     else if(path?.startsWith('/weather/5/')&&state.weather){const field=path.slice('/weather/5/'.length);if(!WEATHER_FIELDS.includes(field as any)){res.writeHead(404);res.end('Not found');return;}res.setHeader('Content-Type','application/json');res.end(JSON.stringify({DispData:weatherText(state.weather(),field as any)}));}
     else if(path==='/pomodoro/static-v1.gif'&&state.pomodoro){res.setHeader('Content-Type','image/gif');res.end(POMODORO_BACKGROUND);}
+    else if(path==='/pomodoro/cat-v2.gif'&&state.pomodoro){res.setHeader('Content-Type','image/gif');res.end(POMODORO_CAT_BACKGROUND);}
+    else if(path==='/pomodoro/cat-loop-v1.gif'&&state.pomodoro){res.setHeader('Content-Type','image/gif');res.end(POMODORO_CAT_ANIMATION);}
+    else if(path==='/pomodoro/cat-sleep-v1.gif'&&state.pomodoro){res.setHeader('Content-Type','image/gif');res.end(POMODORO_CAT_SLEEP_ANIMATION);}
     else if(path?.startsWith('/pomodoro/4/')&&state.pomodoro){const field=path.slice('/pomodoro/4/'.length);if(!POMODORO_FIELDS.includes(field as any)){res.writeHead(404);res.end('Not found');return;}res.setHeader('Content-Type','application/json');res.end(JSON.stringify({DispData:pomodoroText(state.pomodoro.view(),field)}));}
     else if(path==='/api/status'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(state.status()));}
     else if(/^\/screen\/[1-5]\.png$/.test(path||'')){const image=state.image(Number(path!.at(8))-1);if(!image){res.writeHead(404);res.end('No image');}else{res.setHeader('Content-Type','image/png');res.end(image);}}
