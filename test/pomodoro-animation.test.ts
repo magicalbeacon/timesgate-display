@@ -192,3 +192,11 @@ test('independently decoded sleep frames preserve original art, closed eyes, cle
   }
  }
 });
+
+test('every focus and break animation frame reserves the phase rows above the cat',()=>{
+ for(const [name,data] of [['focus',POMODORO_CAT_ANIMATION],['break',POMODORO_CAT_SLEEP_ANIMATION]] as const){
+  for(const [index,frame] of parseGif(data).frames.map(decodeIndices).entries()){
+   assert.deepEqual(frame.subarray(0,22*128),Buffer.alloc(22*128,1),`${name} frame ${index} must keep y0–21 clear`);
+  }
+ }
+});

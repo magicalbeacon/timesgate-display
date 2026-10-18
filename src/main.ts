@@ -12,6 +12,7 @@ import {setupWeather} from './weather-device.ts';
 import {deviceFailureReason} from './device.ts';
 import {PomodoroTimer} from './pomodoro.ts';
 import {setupPomodoro} from './pomodoro-device.ts';
+import {PomodoroPhaseDisplay} from './pomodoro-phase-display.ts';
 const config=loadConfig();const control=new Control(config);const writer=new Writer(config,control);
 // A process restart can follow an uncertain in-flight device write. Always require a fresh explicit arm.
 control.stop();
@@ -23,8 +24,9 @@ const pomodoro=config.pomodoroEnabled?new PomodoroTimer():undefined;
 const pomodoroOrigin=pomodoro?requirePomodoroServer(config):undefined;
 let step=0,running=true,lastWrite:string|null=null,lastRestore:string|null=null,lastWeatherSetup:string|null=null,lastPomodoroSetup:string|null=null,nextRotation=0;
 let lastPomodoroSetupProfile:PomodoroProfile|null=null;
+const phaseDisplay=new PomodoroPhaseDisplay(config,control);
 const previews=new Map<number,Buffer>();let displayedSymbols:[string,string]=pairFor(config.tickers,0);
-function status(){return {version:'0.5.3',control:control.status(),rotationSeconds:config.rotationSeconds,displayedSymbols,lastWrite,lastRestore,lastWeatherSetup,lastPomodoroSetup,lastPomodoroSetupProfile,pomodoro:pomodoro?.view()??null,weather:weatherView(),quoteSource:'Finnhub US / Yahoo delayed price-only routes',historySource:'Yahoo unofficial completed daily OHLC',quotes:market.all()};}
+function status(){return {version:'0.5.4',control:control.status(),rotationSeconds:config.rotationSeconds,displayedSymbols,lastWrite,lastRestore,lastWeatherSetup,lastPomodoroSetup,lastPomodoroSetupProfile,phaseDisplayActive:phaseDisplay.active,lastAcknowledgedPhase:phaseDisplay.acknowledgedPhase,pomodoro:pomodoro?.view()??null,weather:weatherView(),quoteSource:'Finnhub US / Yahoo delayed price-only routes',historySource:'Yahoo unofficial completed daily OHLC',quotes:market.all()};}
 const server=makeServer({status,image:screen=>previews.get(screen),...(weather?{weather:()=>weatherView()!}:{}),...(pomodoro?{pomodoro:{origin:pomodoroOrigin!,view:()=>pomodoro.view(),action:input=>pomodoro.action(input)}}:{})});
 server.listen(config.port,'0.0.0.0',()=>console.log(`Two-screen service listening on port ${config.port}; explicit arm required`));
 market.start();weather?.start();rain?.start();
@@ -47,13 +49,26 @@ async function cycle(){
       } else lastWeatherSetup='Weather setup rejected; stop stock rotation and check configuration';
     }
     if(existsSync(control.path('POMODORO_REQUEST'))){
+      phaseDisplay.disable();
       let request:any;try{request=JSON.parse(readFileSync(control.path('POMODORO_REQUEST'),'utf8'));}catch{request=null;}
       control.remove('POMODORO_REQUEST');
       let profile:PomodoroProfile|null=null;try{profile=pomodoroProfile(request?.profile);}catch{}
       if(!control.isArmed()&&pomodoro&&profile&&request?.fingerprint===pomodoroFingerprint(config,profile)&&request?.stopVersion===control.stopVersion()&&Number.isFinite(request?.at)&&Date.now()-request.at>=0&&Date.now()-request.at<60000){
-        try{await setupPomodoro(config,control,true,request.stopVersion,fetch,profile);lastPomodoroSetup='Screen4 native Pomodoro setup acknowledged';lastPomodoroSetupProfile=profile;}
+        try{
+          const view=pomodoro.view();
+          await setupPomodoro(config,control,true,request.stopVersion,fetch,profile,view);
+          lastPomodoroSetup='Screen4 native Pomodoro setup acknowledged';lastPomodoroSetupProfile=profile;
+          if(profile.background==='phase')phaseDisplay.activate(view,request.stopVersion,profile.pollSeconds);
+        }
         catch(error){lastPomodoroSetup=`Pomodoro setup failed (${deviceFailureReason(error)}); inspect screen4 before retrying`;}
       } else lastPomodoroSetup='Pomodoro setup rejected; stop stock rotation and check configuration';
+    }
+    // The service loop serializes setup and transitions. Polling the timer is
+    // read-only; one scoped layout write occurs only when its phase changes.
+    if(pomodoro&&phaseDisplay.active){
+      const view=pomodoro.view(),result=await phaseDisplay.sync(view);
+      if(result==='acknowledged')lastPomodoroSetup=`Screen4 ${view.phase} layout acknowledged`;
+      else if(result.startsWith('failed'))lastPomodoroSetup=`Screen4 phase switch ${result}; inspect screen4 before explicit setup`;
     }
     if(Date.now()>=nextRotation){
       displayedSymbols=pairFor(config.tickers,step);

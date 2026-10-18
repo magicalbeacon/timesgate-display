@@ -46,7 +46,7 @@ test('integrated dashboard, native reads, JSON, errors, and controls all deny fr
   const f=await fixture(t);
   for(const path of ['/','/healthz','/api/status','/api/pomodoro','/api/pomodoro/control','/pomodoro/static-v1.gif','/pomodoro/cat-v2.gif','/pomodoro/cat-loop-v1.gif','/pomodoro/cat-sleep-v1.gif',...POMODORO_FIELDS.map(field=>'/pomodoro/4/'+field),'/missing'])secured(await f.send(path));
   const page=await f.send('/');assert.match(page.text,/data-action="start" disabled/);assert.match(page.text,/browser-only/);
-  assert.match(page.text,/server restart clears the timer and session count/i);assert.match(page.text,/Screen4 shows the countdown every 10 seconds/);
+  assert.match(page.text,/server restart clears the timer and session count/i);assert.match(page.text,/Screen 4 keeps its existing layout until explicit setup/);
   assert.equal((await f.send('/pomodoro/static-v1.gif')).headers['content-type'],'image/gif');
   const token=(await f.control()).json.csrfToken;const started=await f.post(token,'start',0);secured(started);assert.equal(started.status,200);
   const stale=await f.post(token,'reset',0);secured(stale);assert.equal(stale.status,409);

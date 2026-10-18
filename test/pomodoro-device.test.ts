@@ -12,7 +12,7 @@ import {PomodoroTimer,type PomodoroView} from '../src/pomodoro.ts';
 // These explicit, token-free fixtures never load .env, inherit process.env,
 // inspect credentials, or contact a device. Every setup has a local mock fetch.
 const env={TARGET_SCREENS:'1,2',TICKERS:'VWRA,VALL',DEVICE_IP:'192.168.240.50',DEVICE_WRITES_ENABLED:'true',POMODORO_ENABLED:'true',SERVER_BASE_URL:'http://192.168.240.20:8081'};
-const fields=['phase','countdown','progress','status','updated'];
+const fields=['phase','countdown','progress','status','updated','phase-label','session-dots'];
 const ok=()=>new Response('{"error_code":0}');
 function fixture(t:TestContext){
  const dir=mkdtempSync(join(tmpdir(),'tg-pomodoro-device-'));
